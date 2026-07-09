@@ -1,0 +1,82 @@
+:root {
+  --bg: #05070a;
+  --panel-bg: #0a0e14;
+  --border: #1e2530;
+  --text: #c8d0da;
+  --text-dim: #5c6b7a;
+  --amber: #ffb000;
+  --green: #2ee66b;
+  --red: #ff4d4d;
+  --cyan: #4dd2ff;
+  --mono: "IBM Plex Mono", "SF Mono", "Berkeley Mono", ui-monospace, Menlo,
+    Consolas, monospace;
+
+  color-scheme: dark;
+  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+body {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.term {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 10px;
+  gap: 10px;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.panel-body {
+  padding: 8px 10px;
+  overflow: auto;
+  flex: 1 1 auto;
+}
+
+.up {
+  color: var(--green);
+}
+.down {
+  color: var(--red);
+}
+.neutral {
+  color: var(--text-dim);
+}
+
+.mono-num {
+  font-variant-numeric: tabular-nums;
+}
