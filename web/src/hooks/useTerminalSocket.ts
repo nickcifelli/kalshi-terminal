@@ -3,6 +3,7 @@ import type {
   AnalyticsState,
   ConnectionStatus,
   LockedMarketInfo,
+  MarketSummary,
   OrderbookState,
   TickerState,
   TradeEvent,
@@ -21,6 +22,7 @@ export interface TerminalState {
   orderbook: OrderbookState | null;
   trades: TradeEvent[];
   analytics: AnalyticsState | null;
+  topMarkets: MarketSummary[] | null;
   lock: (ticker: string) => void;
 }
 
@@ -35,6 +37,7 @@ export function useTerminalSocket(): TerminalState {
   const [orderbook, setOrderbook] = useState<OrderbookState | null>(null);
   const [trades, setTrades] = useState<TradeEvent[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsState | null>(null);
+  const [topMarkets, setTopMarkets] = useState<MarketSummary[] | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const pendingLockRef = useRef<string | null>(null);
 
@@ -80,6 +83,9 @@ export function useTerminalSocket(): TerminalState {
             break;
           case "analytics":
             setAnalytics(msg.data);
+            break;
+          case "top_markets":
+            setTopMarkets(msg.markets);
             break;
           case "error":
             setUpstreamError(msg.message);
@@ -127,6 +133,7 @@ export function useTerminalSocket(): TerminalState {
     orderbook,
     trades,
     analytics,
+    topMarkets,
     lock,
   };
 }

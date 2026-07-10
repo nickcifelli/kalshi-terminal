@@ -19,6 +19,7 @@ export function Header(props: {
   upstreamStatus: ConnectionStatus | null;
   market: LockedMarketInfo | null;
   onLock: (ticker: string) => void;
+  onChangeMarket: () => void;
 }) {
   const [input, setInput] = useState("");
 
@@ -77,6 +78,22 @@ export function Header(props: {
           LOCK
         </button>
       </form>
+
+      <button
+        type="button"
+        onClick={props.onChangeMarket}
+        style={{
+          background: "transparent",
+          color: "var(--text-dim)",
+          border: "1px solid var(--border)",
+          fontFamily: "var(--mono)",
+          fontSize: 11,
+          padding: "4px 10px",
+          cursor: "pointer",
+        }}
+      >
+        CHANGE MARKET
+      </button>
 
       <div style={{ flex: 1, textAlign: "center" }}>
         {props.market ? (

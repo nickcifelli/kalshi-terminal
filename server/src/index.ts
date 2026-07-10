@@ -1,11 +1,17 @@
 import { config } from "./config.js";
 import { KalshiClient } from "./kalshiClient.js";
 import { MarketAnalytics } from "./analytics.js";
-import { fetchMarketInfo } from "./marketInfo.js";
+import { fetchMarketInfo, fetchMarketSummary } from "./marketInfo.js";
+import { TradeCounter } from "./tradeCounter.js";
 import { RelayServer } from "./relayServer.js";
+
+const TOP_MARKETS_COUNT = 10;
+const TOP_MARKETS_WARMUP_MS = 15_000;
+const TOP_MARKETS_REFRESH_MS = 15_000;
 
 const kalshi = new KalshiClient();
 const analytics = new MarketAnalytics();
+const tradeCounter = new TradeCounter();
 
 function lockMarket(ticker: string): void {
   const normalized = ticker.trim().toUpperCase();
@@ -52,11 +58,9 @@ kalshi.on("trade", (data) => {
   analytics.onTrade(data);
 });
 
-kalshi.connect();
+kalshi.on("tradeSeen", (ticker: string) => tradeCounter.record(ticker));
 
-if (config.defaultMarketTicker) {
-  lockMarket(config.defaultMarketTicker);
-}
+kalshi.connect();
 
 console.log(`Kalshi terminal relay listening on ws://localhost:${config.port}`);
 console.log(`Upstream: ${config.wsUrl} (${config.env})`);
@@ -69,9 +73,34 @@ const analyticsBroadcastTimer = setInterval(() => {
   if (snapshot) relay.broadcast({ type: "analytics", data: snapshot });
 }, 250);
 
+// Ranks the top markets by live trade count (seen over the global WS trade
+// feed — see kalshiClient's subscribeGlobalTrades) for the market-selection
+// screen. Held back for TOP_MARKETS_WARMUP_MS so the first broadcast isn't
+// based on just one or two early trades.
+async function refreshTopMarkets(): Promise<void> {
+  const ranked = tradeCounter.topTickers(TOP_MARKETS_COUNT);
+  const enriched = await Promise.all(
+    ranked.map(async ({ ticker, tradeCount }) => {
+      const meta = await fetchMarketSummary(ticker);
+      return meta && { ...meta, tradeCount };
+    }),
+  );
+  const markets = enriched.filter((m): m is NonNullable<typeof m> => m != null);
+  console.log(`[top-markets] refreshed (${markets.length} ranked)`);
+  relay.broadcast({ type: "top_markets", markets, asOfMs: Date.now() });
+}
+
+const topMarketsWarmupTimer = setTimeout(() => {
+  refreshTopMarkets();
+  topMarketsTimer = setInterval(refreshTopMarkets, TOP_MARKETS_REFRESH_MS);
+}, TOP_MARKETS_WARMUP_MS);
+let topMarketsTimer: NodeJS.Timeout | undefined;
+
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     clearInterval(analyticsBroadcastTimer);
+    clearTimeout(topMarketsWarmupTimer);
+    clearInterval(topMarketsTimer);
     kalshi.close();
     process.exit(0);
   });

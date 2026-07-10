@@ -44,6 +44,18 @@ export interface LockedMarketInfo {
   closeTime: string | null;
 }
 
+/** Summary of an open market, ranked by live trade count for the
+ * market-selection screen. */
+export interface MarketSummary {
+  ticker: string;
+  title: string | null;
+  subtitle: string | null;
+  yesBidDollars: string | null;
+  yesAskDollars: string | null;
+  tradeCount: number;
+  closeTime: string | null;
+}
+
 export interface MarkoutPoint {
   horizonSec: number;
   avgDollars: number | null;
@@ -88,6 +100,7 @@ export type ServerToClientMessage =
   | { type: "orderbook"; data: OrderbookState }
   | { type: "trade"; data: TradeEvent }
   | { type: "analytics"; data: AnalyticsState }
+  | { type: "top_markets"; markets: MarketSummary[]; asOfMs: number }
   | { type: "error"; message: string };
 
 /** Messages the web frontend sends up to the backend relay. */

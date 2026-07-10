@@ -37,5 +37,4 @@ export const config = {
   apiKeyId: keyId,
   privateKeyPem: readFileSync(resolvedKeyPath, "utf8"),
   port: Number(process.env.PORT || 8787),
-  defaultMarketTicker: process.env.DEFAULT_MARKET_TICKER || undefined,
 };

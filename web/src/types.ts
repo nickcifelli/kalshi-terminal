@@ -44,6 +44,16 @@ export interface LockedMarketInfo {
   closeTime: string | null;
 }
 
+export interface MarketSummary {
+  ticker: string;
+  title: string | null;
+  subtitle: string | null;
+  yesBidDollars: string | null;
+  yesAskDollars: string | null;
+  tradeCount: number;
+  closeTime: string | null;
+}
+
 export interface MarkoutPoint {
   horizonSec: number;
   avgDollars: number | null;
@@ -86,6 +96,7 @@ export type ServerToClientMessage =
   | { type: "orderbook"; data: OrderbookState }
   | { type: "trade"; data: TradeEvent }
   | { type: "analytics"; data: AnalyticsState }
+  | { type: "top_markets"; markets: MarketSummary[]; asOfMs: number }
   | { type: "error"; message: string };
 
 export type ClientToServerMessage = { type: "lock"; ticker: string };

@@ -10,13 +10,15 @@ import type {
   TradeEvent,
 } from "./types.js";
 
-const CHANNELS = ["ticker", "orderbook_delta", "trade"] as const;
+// "trade" is deliberately not here: it's subscribed once, globally, for the
+// life of the connection (see globalTradeSid) rather than per locked market.
+const LOCKED_CHANNELS = ["ticker", "orderbook_delta"] as const;
 const HEARTBEAT_TIMEOUT_MS = 15_000; // server pings every 10s; bail if we miss it
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 
 interface SubscribedChannel {
-  channel: (typeof CHANNELS)[number];
+  channel: (typeof LOCKED_CHANNELS)[number];
   sid: number;
 }
 
@@ -31,6 +33,8 @@ export class KalshiClient extends EventEmitter {
   private nextCmdId = 1;
   private lockedTicker: string | null = null;
   private subscriptions: SubscribedChannel[] = [];
+  private globalTradeSid: number | null = null;
+  private pendingGlobalTradeCmdId: number | null = null;
   private orderbook: { yes: Map<number, number>; no: Map<number, number> } = {
     yes: new Map(),
     no: new Map(),
@@ -80,6 +84,7 @@ export class KalshiClient extends EventEmitter {
       this.reconnectAttempt = 0;
       this.setStatus("connected");
       this.armHeartbeatWatchdog();
+      this.subscribeGlobalTrades();
       if (this.lockedTicker) {
         this.resubscribe(this.lockedTicker);
       }
@@ -104,6 +109,8 @@ export class KalshiClient extends EventEmitter {
     ws.on("close", (code, reason) => {
       this.clearHeartbeatWatchdog();
       this.subscriptions = [];
+      this.globalTradeSid = null;
+      this.pendingGlobalTradeCmdId = null;
       if (this.closedByUser) {
         this.setStatus("disconnected");
         return;
@@ -153,9 +160,22 @@ export class KalshiClient extends EventEmitter {
       id: this.nextCmdId++,
       cmd: "subscribe",
       params: {
-        channels: [...CHANNELS],
+        channels: [...LOCKED_CHANNELS],
         market_ticker: ticker,
       },
+    });
+  }
+
+  /** Subscribes to trade events across every market (no market_ticker) for
+   * the life of the connection, independent of whatever's locked. Used to
+   * tally trade counts for the market-selection screen. */
+  private subscribeGlobalTrades(): void {
+    const id = this.nextCmdId++;
+    this.pendingGlobalTradeCmdId = id;
+    this.send({
+      id,
+      cmd: "subscribe",
+      params: { channels: ["trade"] },
     });
   }
 
@@ -179,6 +199,11 @@ export class KalshiClient extends EventEmitter {
 
     switch (msg.type) {
       case "subscribed": {
+        if (msg.id === this.pendingGlobalTradeCmdId) {
+          this.globalTradeSid = msg.msg.sid;
+          this.pendingGlobalTradeCmdId = null;
+          return;
+        }
         this.subscriptions.push({ channel: msg.msg.channel, sid: msg.msg.sid });
         return;
       }
@@ -202,7 +227,11 @@ export class KalshiClient extends EventEmitter {
         return;
       }
       case "trade": {
-        this.emit("trade", this.parseTrade(msg.msg));
+        const trade = this.parseTrade(msg.msg);
+        this.emit("tradeSeen", trade.marketTicker);
+        if (trade.marketTicker === this.lockedTicker) {
+          this.emit("trade", trade);
+        }
         return;
       }
       default:

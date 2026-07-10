@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { AnalyticsPanel } from "./components/AnalyticsPanel";
 import { Header } from "./components/Header";
+import { MarketPicker } from "./components/MarketPicker";
 import { OrderbookPanel } from "./components/OrderbookPanel";
 import { PricePanel } from "./components/PricePanel";
 import { TradesPanel } from "./components/TradesPanel";
@@ -7,6 +9,22 @@ import { useTerminalSocket } from "./hooks/useTerminalSocket";
 
 export default function App() {
   const state = useTerminalSocket();
+  const [screen, setScreen] = useState<"picker" | "terminal">("picker");
+
+  const lockAndShowTerminal = (ticker: string) => {
+    state.lock(ticker);
+    setScreen("terminal");
+  };
+
+  if (screen === "picker") {
+    return (
+      <MarketPicker
+        topMarkets={state.topMarkets}
+        relayStatus={state.relayStatus}
+        onLock={lockAndShowTerminal}
+      />
+    );
+  }
 
   return (
     <div className="term">
@@ -14,7 +32,8 @@ export default function App() {
         relayStatus={state.relayStatus}
         upstreamStatus={state.upstreamStatus}
         market={state.market}
-        onLock={state.lock}
+        onLock={lockAndShowTerminal}
+        onChangeMarket={() => setScreen("picker")}
       />
 
       {state.upstreamError && (
