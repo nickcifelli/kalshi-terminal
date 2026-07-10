@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AnalyticsState,
   ConnectionStatus,
   LockedMarketInfo,
   OrderbookState,
@@ -19,6 +20,7 @@ export interface TerminalState {
   ticker: TickerState | null;
   orderbook: OrderbookState | null;
   trades: TradeEvent[];
+  analytics: AnalyticsState | null;
   lock: (ticker: string) => void;
 }
 
@@ -32,6 +34,7 @@ export function useTerminalSocket(): TerminalState {
   const [ticker, setTicker] = useState<TickerState | null>(null);
   const [orderbook, setOrderbook] = useState<OrderbookState | null>(null);
   const [trades, setTrades] = useState<TradeEvent[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsState | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const pendingLockRef = useRef<string | null>(null);
 
@@ -64,6 +67,7 @@ export function useTerminalSocket(): TerminalState {
             setTicker(null);
             setOrderbook(null);
             setTrades([]);
+            setAnalytics(null);
             break;
           case "ticker":
             setTicker(msg.data);
@@ -73,6 +77,9 @@ export function useTerminalSocket(): TerminalState {
             break;
           case "trade":
             setTrades((prev) => [msg.data, ...prev].slice(0, MAX_TRADES));
+            break;
+          case "analytics":
+            setAnalytics(msg.data);
             break;
           case "error":
             setUpstreamError(msg.message);
@@ -111,5 +118,15 @@ export function useTerminalSocket(): TerminalState {
     }
   }, []);
 
-  return { relayStatus, upstreamStatus, upstreamError, market, ticker, orderbook, trades, lock };
+  return {
+    relayStatus,
+    upstreamStatus,
+    upstreamError,
+    market,
+    ticker,
+    orderbook,
+    trades,
+    analytics,
+    lock,
+  };
 }

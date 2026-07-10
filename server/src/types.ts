@@ -44,6 +44,42 @@ export interface LockedMarketInfo {
   closeTime: string | null;
 }
 
+export interface MarkoutPoint {
+  horizonSec: number;
+  avgDollars: number | null;
+  sampleCount: number;
+}
+
+/** Rolling-window microstructure analytics computed server-side from the live book/trade stream. */
+export interface AnalyticsState {
+  marketTicker: string;
+  updatedAtMs: number;
+  windowSec: number;
+
+  spreadDollars: number | null;
+  micropriceDollars: number | null;
+  obiTop: number | null;
+  obiDepth: number | null;
+  bookSlopeBid: number | null;
+  bookSlopeAsk: number | null;
+  bookEntropy: number | null;
+
+  ofi: number | null;
+  quoteToTradeRatio: number | null;
+  cancelToTradeRatio: number | null;
+
+  realizedVolBps: number | null;
+  amihud: number | null;
+  kyleLambda: number | null;
+
+  effectiveSpreadDollars: number | null;
+  markouts: MarkoutPoint[];
+
+  vpin: number | null;
+  resiliencyMs: number | null;
+  resiliencyActive: boolean;
+}
+
 /** Messages the backend relay sends down to the web frontend. */
 export type ServerToClientMessage =
   | { type: "status"; status: ConnectionStatus; upstreamError?: string }
@@ -51,6 +87,7 @@ export type ServerToClientMessage =
   | { type: "ticker"; data: TickerState }
   | { type: "orderbook"; data: OrderbookState }
   | { type: "trade"; data: TradeEvent }
+  | { type: "analytics"; data: AnalyticsState }
   | { type: "error"; message: string };
 
 /** Messages the web frontend sends up to the backend relay. */

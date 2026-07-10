@@ -1,3 +1,4 @@
+import { AnalyticsPanel } from "./components/AnalyticsPanel";
 import { Header } from "./components/Header";
 import { OrderbookPanel } from "./components/OrderbookPanel";
 import { PricePanel } from "./components/PricePanel";
@@ -27,6 +28,7 @@ export default function App() {
       <div style={{ display: "flex", gap: 10, flex: 1, minHeight: 0 }}>
         <OrderbookPanel orderbook={state.orderbook} />
         <TradesPanel trades={state.trades} />
+        <AnalyticsPanel analytics={state.analytics} />
       </div>
     </div>
   );

@@ -198,6 +198,7 @@ export class KalshiClient extends EventEmitter {
       case "orderbook_delta": {
         this.applyDelta(msg.msg);
         this.emit("orderbook", this.currentOrderbook(msg.msg.market_ticker));
+        this.emit("bookEvent", "delta", Number(msg.msg.delta_fp));
         return;
       }
       case "trade": {
