@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import type { PricePoint } from "../hooks/useTerminalSocket";
 import type { TickerState } from "../types";
+import { Sparkline } from "./Sparkline";
 
 function fmtCents(dollars: string | null): string {
   if (dollars == null) return "--";
@@ -15,8 +17,8 @@ function fmtCount(v: string | null): string {
   return Math.round(n).toLocaleString();
 }
 
-export function PricePanel(props: { ticker: TickerState | null }) {
-  const { ticker } = props;
+export function PricePanel(props: { ticker: TickerState | null; priceHistory: PricePoint[] }) {
+  const { ticker, priceHistory } = props;
   const prevPrice = useRef<number | null>(null);
   const [direction, setDirection] = useState<"up" | "down" | "flat">("flat");
 
@@ -68,6 +70,23 @@ export function PricePanel(props: { ticker: TickerState | null }) {
               {fmtCount(ticker?.openInterest ?? null)}
             </div>
           </div>
+        </div>
+
+        <div style={{ flex: 1, display: "flex", justifyContent: "flex-end" }}>
+          {priceHistory.length >= 2 ? (
+            <Sparkline
+              data={priceHistory.map((p) => ({ x: p.tsMs, y: p.priceDollars }))}
+              width={260}
+              height={48}
+              color={color}
+              interactive
+              formatValue={(y) => `${(y * 100).toFixed(1)}¢`}
+            />
+          ) : (
+            <div style={{ width: 260, height: 48, color: "var(--text-dim)", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              awaiting ticks…
+            </div>
+          )}
         </div>
       </div>
     </div>

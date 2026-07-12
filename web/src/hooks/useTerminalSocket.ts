@@ -11,7 +11,14 @@ import type {
 
 const RELAY_URL = import.meta.env.VITE_RELAY_URL ?? "ws://localhost:8787";
 const MAX_TRADES = 40;
+const MAX_PRICE_HISTORY = 240;
+const MAX_ANALYTICS_HISTORY = 240;
 const RECONNECT_DELAY_MS = 2000;
+
+export interface PricePoint {
+  tsMs: number;
+  priceDollars: number;
+}
 
 export interface TerminalState {
   relayStatus: "connecting" | "open" | "closed";
@@ -19,9 +26,11 @@ export interface TerminalState {
   upstreamError: string | null;
   market: LockedMarketInfo | null;
   ticker: TickerState | null;
+  priceHistory: PricePoint[];
   orderbook: OrderbookState | null;
   trades: TradeEvent[];
   analytics: AnalyticsState | null;
+  analyticsHistory: AnalyticsState[];
   topMarkets: MarketSummary[] | null;
   lock: (ticker: string) => void;
 }
@@ -34,9 +43,11 @@ export function useTerminalSocket(): TerminalState {
   const [upstreamError, setUpstreamError] = useState<string | null>(null);
   const [market, setMarket] = useState<LockedMarketInfo | null>(null);
   const [ticker, setTicker] = useState<TickerState | null>(null);
+  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [orderbook, setOrderbook] = useState<OrderbookState | null>(null);
   const [trades, setTrades] = useState<TradeEvent[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsState | null>(null);
+  const [analyticsHistory, setAnalyticsHistory] = useState<AnalyticsState[]>([]);
   const [topMarkets, setTopMarkets] = useState<MarketSummary[] | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const pendingLockRef = useRef<string | null>(null);
@@ -68,13 +79,21 @@ export function useTerminalSocket(): TerminalState {
           case "locked":
             setMarket(msg.market);
             setTicker(null);
+            setPriceHistory([]);
             setOrderbook(null);
             setTrades([]);
             setAnalytics(null);
+            setAnalyticsHistory([]);
             break;
-          case "ticker":
+          case "ticker": {
             setTicker(msg.data);
+            const price = msg.data.priceDollars != null ? Number(msg.data.priceDollars) : NaN;
+            if (!Number.isNaN(price)) {
+              const tsMs = msg.data.tsMs ?? Date.now();
+              setPriceHistory((prev) => [...prev, { tsMs, priceDollars: price }].slice(-MAX_PRICE_HISTORY));
+            }
             break;
+          }
           case "orderbook":
             setOrderbook(msg.data);
             break;
@@ -83,6 +102,7 @@ export function useTerminalSocket(): TerminalState {
             break;
           case "analytics":
             setAnalytics(msg.data);
+            setAnalyticsHistory((prev) => [...prev, msg.data].slice(-MAX_ANALYTICS_HISTORY));
             break;
           case "top_markets":
             setTopMarkets(msg.markets);
@@ -130,9 +150,11 @@ export function useTerminalSocket(): TerminalState {
     upstreamError,
     market,
     ticker,
+    priceHistory,
     orderbook,
     trades,
     analytics,
+    analyticsHistory,
     topMarkets,
     lock,
   };

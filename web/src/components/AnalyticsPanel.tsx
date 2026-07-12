@@ -1,5 +1,15 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { AnalyticsState } from "../types";
+import { Sparkline } from "./Sparkline";
+
+function trendOf(
+  history: AnalyticsState[],
+  pick: (a: AnalyticsState) => number | null,
+): { x: number; y: number }[] {
+  return history
+    .map((a) => ({ x: a.updatedAtMs, y: pick(a) }))
+    .filter((p): p is { x: number; y: number } => p.y != null && !Number.isNaN(p.y));
+}
 
 function fmt(n: number | null, decimals = 2): string {
   if (n == null || Number.isNaN(n)) return "--";
@@ -30,12 +40,21 @@ function colorForSigned(n: number | null): string {
   return "var(--text-dim)";
 }
 
-function Row(props: { label: string; hint?: string; value: string; color?: string }) {
+function Row(props: {
+  label: string;
+  hint?: string;
+  value: string;
+  color?: string;
+  trend?: { x: number; y: number }[];
+  diverging?: boolean;
+  formatTrendValue?: (y: number) => string;
+}) {
   return (
     <div
       style={{
         display: "flex",
         justifyContent: "space-between",
+        alignItems: "center",
         gap: 8,
         fontSize: 12,
         padding: "1px 0",
@@ -45,8 +64,20 @@ function Row(props: { label: string; hint?: string; value: string; color?: strin
         {props.label}
         {props.hint && <span style={{ opacity: 0.6 }}> {props.hint}</span>}
       </span>
-      <span className="mono-num" style={{ color: props.color ?? "var(--text)" }}>
-        {props.value}
+      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {props.trend && props.trend.length >= 2 && (
+          <Sparkline
+            data={props.trend}
+            width={56}
+            height={16}
+            diverging={props.diverging}
+            color="var(--cyan)"
+            formatValue={props.formatTrendValue}
+          />
+        )}
+        <span className="mono-num" style={{ color: props.color ?? "var(--text)" }}>
+          {props.value}
+        </span>
       </span>
     </div>
   );
@@ -70,8 +101,18 @@ function Section(props: { title: string; children: ReactNode }) {
   );
 }
 
-export function AnalyticsPanel(props: { analytics: AnalyticsState | null }) {
+export function AnalyticsPanel(props: {
+  analytics: AnalyticsState | null;
+  analyticsHistory: AnalyticsState[];
+}) {
   const a = props.analytics;
+  const history = props.analyticsHistory;
+
+  const obiTopTrend = useMemo(() => trendOf(history, (s) => s.obiTop), [history]);
+  const ofiTrend = useMemo(() => trendOf(history, (s) => s.ofi), [history]);
+  const vpinTrend = useMemo(() => trendOf(history, (s) => s.vpin), [history]);
+  const realizedVolTrend = useMemo(() => trendOf(history, (s) => s.realizedVolBps), [history]);
+
   return (
     <div className="panel" style={{ flex: 1.2, minHeight: 0 }}>
       <div className="panel-title">
@@ -90,6 +131,9 @@ export function AnalyticsPanel(props: { analytics: AnalyticsState | null }) {
                 label="OBI (TOP)"
                 value={fmtPct(a.obiTop)}
                 color={colorForSigned(a.obiTop)}
+                trend={obiTopTrend}
+                diverging
+                formatTrendValue={(y) => fmtPct(y)}
               />
               <Row
                 label="OBI (DEPTH)"
@@ -102,7 +146,14 @@ export function AnalyticsPanel(props: { analytics: AnalyticsState | null }) {
             </Section>
 
             <Section title="FLOW">
-              <Row label="OFI" value={fmt(a.ofi, 0)} color={colorForSigned(a.ofi)} />
+              <Row
+                label="OFI"
+                value={fmt(a.ofi, 0)}
+                color={colorForSigned(a.ofi)}
+                trend={ofiTrend}
+                diverging
+                formatTrendValue={(y) => fmt(y, 0)}
+              />
               <Row label="QUOTE/TRADE" value={fmt(a.quoteToTradeRatio, 1)} />
               <Row label="CANCEL/TRADE" value={fmt(a.cancelToTradeRatio, 1)} />
               <Row label="KYLE'S LAMBDA" value={fmt(a.kyleLambda, 4)} />
@@ -124,12 +175,19 @@ export function AnalyticsPanel(props: { analytics: AnalyticsState | null }) {
               <Row
                 label="REALIZED VOL"
                 value={a.realizedVolBps != null ? `${a.realizedVolBps.toFixed(1)} bps` : "--"}
+                trend={realizedVolTrend}
+                formatTrendValue={(y) => `${y.toFixed(1)} bps`}
               />
               <Row
                 label="AMIHUD ILLIQ."
                 value={a.amihud != null ? a.amihud.toExponential(2) : "--"}
               />
-              <Row label="VPIN" value={fmt(a.vpin, 2)} />
+              <Row
+                label="VPIN"
+                value={fmt(a.vpin, 2)}
+                trend={vpinTrend}
+                formatTrendValue={(y) => fmt(y, 2)}
+              />
               <Row
                 label="RESILIENCY"
                 value={

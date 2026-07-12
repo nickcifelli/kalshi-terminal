@@ -42,12 +42,12 @@ export default function App() {
         </div>
       )}
 
-      <PricePanel ticker={state.ticker} />
+      <PricePanel ticker={state.ticker} priceHistory={state.priceHistory} />
 
       <div style={{ display: "flex", gap: 10, flex: 1, minHeight: 0 }}>
         <OrderbookPanel orderbook={state.orderbook} />
         <TradesPanel trades={state.trades} />
-        <AnalyticsPanel analytics={state.analytics} />
+        <AnalyticsPanel analytics={state.analytics} analyticsHistory={state.analyticsHistory} />
       </div>
     </div>
   );
