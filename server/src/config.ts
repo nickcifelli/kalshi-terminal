@@ -37,4 +37,12 @@ export const config = {
   apiKeyId: keyId,
   privateKeyPem: readFileSync(resolvedKeyPath, "utf8"),
   port: Number(process.env.PORT || 8787),
+  // Origins allowed to open a WebSocket connection to the local relay (see
+  // relayServer.ts). Defaults cover the Vite dev server on its default port.
+  allowedOrigins: (
+    process.env.RELAY_ALLOWED_ORIGINS || "http://localhost:5173,http://127.0.0.1:5173"
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 };

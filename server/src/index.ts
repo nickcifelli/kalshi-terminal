@@ -42,10 +42,22 @@ kalshi.on("error", (message: string) => {
   relay.broadcast({ type: "error", message });
 });
 
-kalshi.on("ticker", (data) => relay.broadcast({ type: "ticker", data }));
+// Ticker/orderbook can tick many times a second on a busy market; buffer the
+// latest of each and flush on the same fixed cadence as analytics below
+// rather than broadcasting (and forcing a frontend re-render) on every
+// single upstream message.
+let latestTicker: Extract<import("./types.js").ServerToClientMessage, { type: "ticker" }> | null =
+  null;
+let latestOrderbook:
+  | Extract<import("./types.js").ServerToClientMessage, { type: "orderbook" }>
+  | null = null;
+
+kalshi.on("ticker", (data) => {
+  latestTicker = { type: "ticker", data };
+});
 
 kalshi.on("orderbook", (data) => {
-  relay.broadcast({ type: "orderbook", data });
+  latestOrderbook = { type: "orderbook", data };
   analytics.onOrderbook(data);
 });
 
@@ -65,12 +77,22 @@ kalshi.connect();
 console.log(`Kalshi terminal relay listening on ws://localhost:${config.port}`);
 console.log(`Upstream: ${config.wsUrl} (${config.env})`);
 
-// Analytics are cheap to recompute but expensive to ship on every single
-// book delta; batch snapshots onto a fixed cadence instead.
-const analyticsBroadcastTimer = setInterval(() => {
-  if (!analytics.consumeDirty()) return;
-  const snapshot = analytics.snapshot();
-  if (snapshot) relay.broadcast({ type: "analytics", data: snapshot });
+// Ticker/orderbook/analytics are all cheap to recompute but expensive to
+// ship on every single upstream message; batch broadcasts onto a fixed
+// cadence instead.
+const broadcastTimer = setInterval(() => {
+  if (latestTicker) {
+    relay.broadcast(latestTicker);
+    latestTicker = null;
+  }
+  if (latestOrderbook) {
+    relay.broadcast(latestOrderbook);
+    latestOrderbook = null;
+  }
+  if (analytics.consumeDirty()) {
+    const snapshot = analytics.snapshot();
+    if (snapshot) relay.broadcast({ type: "analytics", data: snapshot });
+  }
 }, 250);
 
 // Ranks the top markets by live trade count (seen over the global WS trade
@@ -98,7 +120,7 @@ let topMarketsTimer: NodeJS.Timeout | undefined;
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
-    clearInterval(analyticsBroadcastTimer);
+    clearInterval(broadcastTimer);
     clearTimeout(topMarketsWarmupTimer);
     clearInterval(topMarketsTimer);
     kalshi.close();
