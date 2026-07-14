@@ -80,3 +80,17 @@ body {
 .mono-num {
   font-variant-numeric: tabular-nums;
 }
+
+@keyframes close-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
+.close-critical {
+  animation: close-flash 0.6s steps(1, end) infinite;
+}

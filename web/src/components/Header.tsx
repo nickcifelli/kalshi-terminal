@@ -11,17 +11,20 @@ function useNow(intervalMs: number): number {
 }
 
 const CLOSE_SOON_MS = 5 * 60_000;
+const CLOSE_CRITICAL_MS = 60_000;
 
 function timeToClose(
   closeTime: string | null,
   now: number,
-): { text: string; urgent: boolean } | null {
+): { text: string; urgent: boolean; critical: boolean; closed: boolean } | null {
   if (!closeTime) return null;
   const closeMs = Date.parse(closeTime);
   if (Number.isNaN(closeMs)) return null;
 
   const remainingMs = closeMs - now;
-  if (remainingMs <= 0) return { text: "CLOSED", urgent: true };
+  if (remainingMs <= 0) {
+    return { text: "CLOSED", urgent: true, critical: false, closed: true };
+  }
 
   const totalSec = Math.floor(remainingMs / 1000);
   const days = Math.floor(totalSec / 86400);
@@ -36,7 +39,12 @@ function timeToClose(
         ? `${hours}h ${minutes}m ${seconds}s`
         : `${minutes}m ${seconds}s`;
 
-  return { text, urgent: remainingMs < CLOSE_SOON_MS };
+  return {
+    text,
+    urgent: remainingMs < CLOSE_SOON_MS,
+    critical: remainingMs < CLOSE_CRITICAL_MS,
+    closed: false,
+  };
 }
 
 function statusColor(relay: string, upstream: ConnectionStatus | null): string {
@@ -146,13 +154,33 @@ export function Header(props: {
             )}
             {closeInfo && (
               <span
+                className={closeInfo.critical ? "close-badge close-critical" : "close-badge"}
                 style={{
-                  color: closeInfo.urgent ? "var(--red)" : "var(--text-dim)",
-                  fontSize: 11,
-                  marginLeft: 10,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  marginLeft: 12,
+                  padding: "3px 12px",
+                  borderRadius: 3,
+                  fontWeight: 700,
+                  fontSize: 15,
+                  letterSpacing: "0.03em",
+                  border: `1px solid ${
+                    closeInfo.closed || closeInfo.critical
+                      ? "var(--red)"
+                      : closeInfo.urgent
+                        ? "var(--amber)"
+                        : "var(--border)"
+                  }`,
+                  color:
+                    closeInfo.closed || closeInfo.critical
+                      ? "var(--red)"
+                      : closeInfo.urgent
+                        ? "var(--amber)"
+                        : "var(--text-dim)",
+                  background: closeInfo.critical ? "rgba(255, 77, 77, 0.15)" : "transparent",
                 }}
               >
-                CLOSES IN {closeInfo.text}
+                {closeInfo.closed ? "CLOSED" : `CLOSES IN ${closeInfo.text}`}
               </span>
             )}
           </span>
