@@ -112,6 +112,7 @@ export function AnalyticsPanel(props: {
   const ofiTrend = useMemo(() => trendOf(history, (s) => s.ofi), [history]);
   const vpinTrend = useMemo(() => trendOf(history, (s) => s.vpin), [history]);
   const realizedVolTrend = useMemo(() => trendOf(history, (s) => s.realizedVolLogit), [history]);
+  const fvEdgeTrend = useMemo(() => trendOf(history, (s) => s.fairValueEdgeDollars), [history]);
 
   return (
     <div className="panel" style={{ flex: 1.2, minHeight: 0 }}>
@@ -124,6 +125,24 @@ export function AnalyticsPanel(props: {
         )}
         {a && (
           <>
+            <Section title="FAIR VALUE">
+              <Row label="ESTIMATE" value={fmtCents(a.fairValueDollars, 3)} />
+              <Row
+                label="EDGE"
+                value={fmtSignedCents(a.fairValueEdgeDollars, 2)}
+                color={colorForSigned(a.fairValueEdgeDollars)}
+                trend={fvEdgeTrend}
+                diverging
+                formatTrendValue={(y) => fmtSignedCents(y)}
+              />
+              <Row label="CONFIDENCE" value={fmtPct(a.fvConfidence)} />
+              <Row
+                label="HIT RATE"
+                hint={a.fvSampleCount > 0 ? `(n=${a.fvSampleCount})` : undefined}
+                value={fmtPct(a.fvHitRate)}
+              />
+            </Section>
+
             <Section title="BOOK">
               <Row label="SPREAD" value={fmtCents(a.spreadDollars, 2)} />
               <Row label="MICROPRICE" value={fmtCents(a.micropriceDollars, 3)} />

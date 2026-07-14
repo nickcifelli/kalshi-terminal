@@ -90,6 +90,14 @@ export interface AnalyticsState {
   vpin: number | null;
   resiliencyMs: number | null;
   resiliencyActive: boolean;
+
+  /** Order-flow-adjusted fair value estimate (v1, non-ML) -- see future.md for the planned v2. */
+  fairValueDollars: number | null;
+  fairValueEdgeDollars: number | null;
+  fvBeta: number | null;
+  fvConfidence: number | null;
+  fvHitRate: number | null;
+  fvSampleCount: number;
 }
 
 /** Messages the backend relay sends down to the web frontend. */

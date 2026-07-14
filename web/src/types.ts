@@ -87,6 +87,13 @@ export interface AnalyticsState {
   vpin: number | null;
   resiliencyMs: number | null;
   resiliencyActive: boolean;
+
+  fairValueDollars: number | null;
+  fairValueEdgeDollars: number | null;
+  fvBeta: number | null;
+  fvConfidence: number | null;
+  fvHitRate: number | null;
+  fvSampleCount: number;
 }
 
 export type ServerToClientMessage =

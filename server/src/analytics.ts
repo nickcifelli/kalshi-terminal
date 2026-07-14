@@ -26,6 +26,23 @@ const SPREAD_EMA_ALPHA = 0.02;
 const SHOCK_MULT = 1.75;
 const RECOVER_MULT = 1.1;
 
+// Fair value: online order-flow-adjusted estimator, no training. A rolling
+// through-origin regression of forward logit(mid) drift on smoothed OFI,
+// refit continuously and scored against its own causal directional hit rate
+// -- same shape as Kyle's lambda above, but forward-looking (predict, wait,
+// resolve) like markouts rather than contemporaneous. See ../../future.md
+// for the planned trained/ensemble v2.
+const FV_OFI_EMA_ALPHA = 0.2;
+const FV_HORIZON_SEC = MARKOUT_HORIZONS_SEC[0];
+const FV_SAMPLE_INTERVAL_MS = 1_000;
+const FV_MAX_CALIBRATION_SAMPLES = 300;
+const FV_MIN_CALIBRATION_SAMPLES = 30;
+const FV_MAX_PENDING_WAIT_MS = (FV_HORIZON_SEC + 15) * 1000;
+// Regime gate: collapse the adjustment toward raw mid when flow looks toxic
+// (VPIN) or the book is mid-shock -- i.e. trust the signal less exactly when
+// it's noisiest, rather than blending it in at a fixed weight always.
+const FV_SHOCK_CONFIDENCE = 0.15;
+
 // Kalshi prices are probabilities bounded in [0, 1], not compounding asset
 // prices -- log(cur/prev) returns blow up near the boundaries (a 1c->2c move
 // registers as a huge "return" despite trivial P&L impact) and understate
@@ -38,6 +55,10 @@ const LOGIT_EPS = 1e-4;
 function logit(p: number): number {
   const clamped = Math.min(1 - LOGIT_EPS, Math.max(LOGIT_EPS, p));
   return Math.log(clamped / (1 - clamped));
+}
+
+function sigmoid(x: number): number {
+  return 1 / (1 + Math.exp(-x));
 }
 
 interface PriceSize {
@@ -60,6 +81,15 @@ interface PendingMarkout {
   sign: 1 | -1;
   midAtTrade: number;
   resolvedHorizons: Set<number>;
+}
+
+interface PendingFvSample {
+  tsMs: number;
+  emaOfi: number;
+  midAtSample: number;
+  // beta frozen at sample time, so hit-rate scoring is causal (never scored
+  // against a beta fit using data from after the prediction was made).
+  predictedEdgeLogit: number;
 }
 
 function topOfBook(book: OrderbookState): { bid: PriceSize; ask: PriceSize } | null {
@@ -168,6 +198,13 @@ export class MarketAnalytics {
   private shockStartMs = 0;
   private lastResiliencyMs: number | null = null;
 
+  private emaOfi = 0;
+  private hasEmaOfi = false;
+  private lastFvSampleMs = 0;
+  private pendingFvSamples: PendingFvSample[] = [];
+  private fvCalibration: { x: number; y: number }[] = [];
+  private fvHitHistory: boolean[] = [];
+
   reset(marketTicker: string): void {
     this.marketTicker = marketTicker;
     this.lastBook = null;
@@ -203,6 +240,13 @@ export class MarketAnalytics {
     this.shockActive = false;
     this.shockStartMs = 0;
     this.lastResiliencyMs = null;
+
+    this.emaOfi = 0;
+    this.hasEmaOfi = false;
+    this.lastFvSampleMs = 0;
+    this.pendingFvSamples = [];
+    this.fvCalibration = [];
+    this.fvHitHistory = [];
   }
 
   onBookEvent(kind: "snapshot" | "delta", deltaFp?: number): void {
@@ -228,9 +272,26 @@ export class MarketAnalytics {
         this.lastAsk ? { price: -this.lastAsk.price, size: this.lastAsk.size } : null,
         { price: -top.ask.price, size: top.ask.size },
       );
-      this.ofiSamples.push({ tsMs: now, value: bidContribution - askContribution });
+      const rawOfi = bidContribution - askContribution;
+      this.ofiSamples.push({ tsMs: now, value: rawOfi });
       this.lastBid = top.bid;
       this.lastAsk = top.ask;
+
+      this.emaOfi = this.hasEmaOfi
+        ? this.emaOfi * (1 - FV_OFI_EMA_ALPHA) + rawOfi * FV_OFI_EMA_ALPHA
+        : rawOfi;
+      this.hasEmaOfi = true;
+      this.resolveFvSamples(now, mid);
+      if (now - this.lastFvSampleMs >= FV_SAMPLE_INTERVAL_MS) {
+        const beta = this.fvBeta();
+        this.pendingFvSamples.push({
+          tsMs: now,
+          emaOfi: this.emaOfi,
+          midAtSample: mid,
+          predictedEdgeLogit: beta != null ? beta * this.emaOfi : 0,
+        });
+        this.lastFvSampleMs = now;
+      }
 
       this.updateResiliency(top.ask.price - top.bid.price, now);
 
@@ -313,6 +374,16 @@ export class MarketAnalytics {
     });
     const tradeCount = this.tradeTimestamps.length;
 
+    const mid = this.currentMid();
+    const beta = this.fvBeta();
+    const confidence = this.fvConfidence();
+    let fairValueDollars: number | null = null;
+    let fairValueEdgeDollars: number | null = null;
+    if (beta != null && mid != null) {
+      fairValueDollars = sigmoid(logit(mid) + beta * this.emaOfi * confidence);
+      fairValueEdgeDollars = fairValueDollars - mid;
+    }
+
     return {
       marketTicker: this.marketTicker,
       updatedAtMs: Date.now(),
@@ -326,17 +397,25 @@ export class MarketAnalytics {
       kyleLambda: this.kyleLambda(),
       effectiveSpreadDollars: avg(this.effSpreadSamples),
       markouts,
-      vpin:
-        this.vpinBuckets.length > 0
-          ? this.vpinBuckets.reduce((a, b) => a + b, 0) / this.vpinBuckets.length
-          : null,
+      vpin: this.currentVpin(),
       resiliencyMs: this.lastResiliencyMs,
       resiliencyActive: this.shockActive,
+      fairValueDollars,
+      fairValueEdgeDollars,
+      fvBeta: beta,
+      fvConfidence: confidence,
+      fvHitRate: this.fvHitRate(),
+      fvSampleCount: this.fvCalibration.length,
     };
   }
 
   private currentMid(): number | null {
     return this.midHistory.length > 0 ? this.midHistory[this.midHistory.length - 1].mid : null;
+  }
+
+  private currentVpin(): number | null {
+    if (this.vpinBuckets.length === 0) return null;
+    return this.vpinBuckets.reduce((a, b) => a + b, 0) / this.vpinBuckets.length;
   }
 
   private microstructureFromBook(book: OrderbookState): {
@@ -412,6 +491,60 @@ export class MarketAnalytics {
         p.resolvedHorizons.size < MARKOUT_HORIZONS_SEC.length && now - p.tsMs < MAX_MARKOUT_WAIT_MS
       );
     });
+  }
+
+  // Causal: resolves samples whose horizon has elapsed using the *current*
+  // mid, then folds them into the calibration buffer that fvBeta() reads.
+  // predictedEdgeLogit on each pending sample was frozen using whatever beta
+  // existed when the sample was taken, so hit-rate scoring never peeks ahead.
+  private resolveFvSamples(now: number, mid: number): void {
+    this.pendingFvSamples = this.pendingFvSamples.filter((p) => {
+      if (now - p.tsMs >= FV_HORIZON_SEC * 1000) {
+        const realizedLogitChange = logit(mid) - logit(p.midAtSample);
+        this.fvCalibration.push({ x: p.emaOfi, y: realizedLogitChange });
+        if (this.fvCalibration.length > FV_MAX_CALIBRATION_SAMPLES) this.fvCalibration.shift();
+
+        if (p.predictedEdgeLogit !== 0) {
+          this.fvHitHistory.push(
+            Math.sign(p.predictedEdgeLogit) === Math.sign(realizedLogitChange),
+          );
+          if (this.fvHitHistory.length > FV_MAX_CALIBRATION_SAMPLES) this.fvHitHistory.shift();
+        }
+        return false;
+      }
+      return now - p.tsMs < FV_MAX_PENDING_WAIT_MS;
+    });
+  }
+
+  // Through-origin OLS of realized forward logit(mid) drift on emaOFI at
+  // sample time -- same regression shape as kyleLambda() above, just fit
+  // against a forward-looking target instead of a contemporaneous one.
+  private fvBeta(): number | null {
+    if (this.fvCalibration.length < FV_MIN_CALIBRATION_SAMPLES) return null;
+    let num = 0;
+    let den = 0;
+    for (const { x, y } of this.fvCalibration) {
+      num += x * y;
+      den += x * x;
+    }
+    if (den === 0) return null;
+    return num / den;
+  }
+
+  // Regime gate: trust the order-flow adjustment fully in a calm, non-toxic
+  // book; collapse it toward raw mid when flow looks informed (high VPIN) or
+  // the book is actively shocked, i.e. exactly when the linear fit is least
+  // likely to hold.
+  private fvConfidence(): number {
+    if (this.shockActive) return FV_SHOCK_CONFIDENCE;
+    const vpin = this.currentVpin() ?? 0;
+    return Math.max(0, 1 - vpin);
+  }
+
+  private fvHitRate(): number | null {
+    if (this.fvHitHistory.length < FV_MIN_CALIBRATION_SAMPLES) return null;
+    const hits = this.fvHitHistory.filter(Boolean).length;
+    return hits / this.fvHitHistory.length;
   }
 
   private updateResiliency(spread: number, now: number): void {

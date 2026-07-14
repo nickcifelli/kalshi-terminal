@@ -7,3 +7,4 @@ server/keys/*
 !server/keys/.gitkeep
 *.log
 .DS_Store
+future.md
