@@ -92,6 +92,37 @@ interface PendingFvSample {
   predictedEdgeLogit: number;
 }
 
+// Generalization of PendingFvSample/resolveFvSamples below to *every*
+// takeLabeledSnapshot() call, across all MARKOUT_HORIZONS_SEC rather than
+// just FV_HORIZON_SEC -- this is the offline-training analogue of that
+// causal buffer: a feature vector taken now, whose forward outcome we can
+// only know once the horizon has actually elapsed. See future.md's data
+// logging step 2.
+interface PendingSnapshotLabel {
+  snapshotId: string;
+  tsMs: number;
+  midAtSnapshot: number;
+  resolvedHorizons: Set<number>;
+}
+
+/** A feature-vector snapshot tagged with an id that later-resolved
+ * ResolvedLabel entries reference, so training data can be reconstructed by
+ * joining snapshot -> outcome after the fact. */
+export interface LabeledSnapshot {
+  snapshotId: string;
+  snapshot: AnalyticsState;
+}
+
+/** A realized forward logit(mid) drift for a given horizon, resolved
+ * strictly after that horizon has elapsed -- never computed against data
+ * from before the snapshot it labels. */
+export interface ResolvedLabel {
+  snapshotId: string;
+  horizonSec: number;
+  realizedForwardDriftLogit: number;
+  resolvedAtMs: number;
+}
+
 function topOfBook(book: OrderbookState): { bid: PriceSize; ask: PriceSize } | null {
   if (book.yes.length === 0 || book.no.length === 0) return null;
   return {
@@ -205,6 +236,9 @@ export class MarketAnalytics {
   private fvCalibration: { x: number; y: number }[] = [];
   private fvHitHistory: boolean[] = [];
 
+  private pendingSnapshotLabels: PendingSnapshotLabel[] = [];
+  private resolvedLabels: ResolvedLabel[] = [];
+
   reset(marketTicker: string): void {
     this.marketTicker = marketTicker;
     this.lastBook = null;
@@ -247,6 +281,9 @@ export class MarketAnalytics {
     this.pendingFvSamples = [];
     this.fvCalibration = [];
     this.fvHitHistory = [];
+
+    this.pendingSnapshotLabels = [];
+    this.resolvedLabels = [];
   }
 
   onBookEvent(kind: "snapshot" | "delta", deltaFp?: number): void {
@@ -282,6 +319,7 @@ export class MarketAnalytics {
         : rawOfi;
       this.hasEmaOfi = true;
       this.resolveFvSamples(now, mid);
+      this.resolveSnapshotLabels(now, mid);
       if (now - this.lastFvSampleMs >= FV_SAMPLE_INTERVAL_MS) {
         const beta = this.fvBeta();
         this.pendingFvSamples.push({
@@ -409,6 +447,35 @@ export class MarketAnalytics {
     };
   }
 
+  /**
+   * Like snapshot(), but tags the result with a stable id and registers it
+   * in a causal pending buffer so forward outcomes can be resolved later
+   * (see resolveSnapshotLabels/drainResolvedLabels) without ever looking
+   * ahead of the moment the snapshot was taken.
+   */
+  takeLabeledSnapshot(): LabeledSnapshot | null {
+    const snap = this.snapshot();
+    if (!snap) return null;
+    const snapshotId = `${snap.marketTicker}:${snap.updatedAtMs}`;
+    const mid = this.currentMid();
+    if (mid != null) {
+      this.pendingSnapshotLabels.push({
+        snapshotId,
+        tsMs: snap.updatedAtMs,
+        midAtSnapshot: mid,
+        resolvedHorizons: new Set(),
+      });
+    }
+    return { snapshotId, snapshot: snap };
+  }
+
+  /** Drains and returns forward-outcome labels resolved since the last call. */
+  drainResolvedLabels(): ResolvedLabel[] {
+    const drained = this.resolvedLabels;
+    this.resolvedLabels = [];
+    return drained;
+  }
+
   private currentMid(): number | null {
     return this.midHistory.length > 0 ? this.midHistory[this.midHistory.length - 1].mid : null;
   }
@@ -513,6 +580,30 @@ export class MarketAnalytics {
         return false;
       }
       return now - p.tsMs < FV_MAX_PENDING_WAIT_MS;
+    });
+  }
+
+  // Same causal shape as resolveMarkouts/resolveFvSamples above, generalized
+  // to every takeLabeledSnapshot() sample and all MARKOUT_HORIZONS_SEC, for
+  // offline training rather than online calibration -- see future.md's data
+  // logging step 2 for why this must never peek past `now`.
+  private resolveSnapshotLabels(now: number, mid: number): void {
+    this.pendingSnapshotLabels = this.pendingSnapshotLabels.filter((p) => {
+      for (const horizonSec of MARKOUT_HORIZONS_SEC) {
+        if (p.resolvedHorizons.has(horizonSec)) continue;
+        if (now - p.tsMs >= horizonSec * 1000) {
+          this.resolvedLabels.push({
+            snapshotId: p.snapshotId,
+            horizonSec,
+            realizedForwardDriftLogit: logit(mid) - logit(p.midAtSnapshot),
+            resolvedAtMs: now,
+          });
+          p.resolvedHorizons.add(horizonSec);
+        }
+      }
+      return (
+        p.resolvedHorizons.size < MARKOUT_HORIZONS_SEC.length && now - p.tsMs < MAX_MARKOUT_WAIT_MS
+      );
     });
   }
 

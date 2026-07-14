@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { config } from "./config.js";
-import { buildAuthHeaders } from "./kalshiSign.js";
+import { buildAuthHeaders } from "@kalshi-terminal/shared/kalshiSign.js";
 import type {
   ConnectionStatus,
   OrderbookLevel,

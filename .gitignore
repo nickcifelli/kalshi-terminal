@@ -5,6 +5,7 @@ build/
 .env.local
 server/keys/*
 !server/keys/.gitkeep
+collector/data/
 *.log
 .DS_Store
 future.md

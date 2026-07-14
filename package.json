@@ -1,0 +1,11 @@
+{
+  "name": "kalshi-terminal",
+  "private": true,
+  "workspaces": ["server", "web", "collector", "shared"],
+  "scripts": {
+    "build:shared": "npm run build -w shared",
+    "dev:server": "npm run build:shared && npm run dev -w server",
+    "dev:collector": "npm run build:shared && npm run dev -w collector",
+    "build": "npm run build:shared && npm run build -w server && npm run build -w collector"
+  }
+}

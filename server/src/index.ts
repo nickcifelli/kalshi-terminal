@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 import { KalshiClient } from "./kalshiClient.js";
-import { MarketAnalytics } from "./analytics.js";
+import { MarketAnalytics } from "@kalshi-terminal/shared/analytics.js";
 import { fetchMarketInfo, fetchMarketSummary } from "./marketInfo.js";
 import { TradeCounter } from "./tradeCounter.js";
 import { RelayServer } from "./relayServer.js";
