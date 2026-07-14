@@ -111,7 +111,7 @@ export function AnalyticsPanel(props: {
   const obiTopTrend = useMemo(() => trendOf(history, (s) => s.obiTop), [history]);
   const ofiTrend = useMemo(() => trendOf(history, (s) => s.ofi), [history]);
   const vpinTrend = useMemo(() => trendOf(history, (s) => s.vpin), [history]);
-  const realizedVolTrend = useMemo(() => trendOf(history, (s) => s.realizedVolBps), [history]);
+  const realizedVolTrend = useMemo(() => trendOf(history, (s) => s.realizedVolLogit), [history]);
 
   return (
     <div className="panel" style={{ flex: 1.2, minHeight: 0 }}>
@@ -174,13 +174,15 @@ export function AnalyticsPanel(props: {
             <Section title="RISK / MICROSTRUCTURE">
               <Row
                 label="REALIZED VOL"
-                value={a.realizedVolBps != null ? `${a.realizedVolBps.toFixed(1)} bps` : "--"}
+                hint="logit"
+                value={fmt(a.realizedVolLogit, 4)}
                 trend={realizedVolTrend}
-                formatTrendValue={(y) => `${y.toFixed(1)} bps`}
+                formatTrendValue={(y) => fmt(y, 4)}
               />
               <Row
                 label="AMIHUD ILLIQ."
-                value={a.amihud != null ? a.amihud.toExponential(2) : "--"}
+                hint="logit"
+                value={a.amihudLogit != null ? a.amihudLogit.toExponential(2) : "--"}
               />
               <Row
                 label="VPIN"

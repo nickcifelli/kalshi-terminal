@@ -26,6 +26,20 @@ const SPREAD_EMA_ALPHA = 0.02;
 const SHOCK_MULT = 1.75;
 const RECOVER_MULT = 1.1;
 
+// Kalshi prices are probabilities bounded in [0, 1], not compounding asset
+// prices -- log(cur/prev) returns blow up near the boundaries (a 1c->2c move
+// registers as a huge "return" despite trivial P&L impact) and understate
+// moves near 50c. The logit/log-odds transform is unbounded and symmetric,
+// so differencing it gives a "return" that scales correctly across the
+// whole price range. Clamp away from the boundary so a 0/100c quote doesn't
+// produce +/-Infinity.
+const LOGIT_EPS = 1e-4;
+
+function logit(p: number): number {
+  const clamped = Math.min(1 - LOGIT_EPS, Math.max(LOGIT_EPS, p));
+  return Math.log(clamped / (1 - clamped));
+}
+
 interface PriceSize {
   price: number;
   size: number;
@@ -256,11 +270,11 @@ export class MarketAnalytics {
       this.pendingMarkouts.push({ tsMs: now, sign, midAtTrade: mid, resolvedHorizons: new Set() });
     }
 
-    if (this.lastTradePrice != null && this.lastTradePrice > 0 && price > 0) {
-      const ret = Math.log(price / this.lastTradePrice);
+    if (this.lastTradePrice != null) {
+      const logitRet = logit(price) - logit(this.lastTradePrice);
       const dollarVol = price * size;
       if (dollarVol > 0) {
-        this.amihudSamples.push({ tsMs: now, value: Math.abs(ret) / dollarVol });
+        this.amihudSamples.push({ tsMs: now, value: Math.abs(logitRet) / dollarVol });
       }
     }
     this.lastTradePrice = price;
@@ -307,8 +321,8 @@ export class MarketAnalytics {
       ofi: this.ofiSamples.length > 0 ? this.ofiSamples.reduce((a, s) => a + s.value, 0) : null,
       quoteToTradeRatio: tradeCount > 0 ? this.deltaEventTimestamps.length / tradeCount : null,
       cancelToTradeRatio: tradeCount > 0 ? this.cancelEventTimestamps.length / tradeCount : null,
-      realizedVolBps: this.realizedVolBps(),
-      amihud: avg(this.amihudSamples),
+      realizedVolLogit: this.realizedVolLogit(),
+      amihudLogit: avg(this.amihudSamples),
       kyleLambda: this.kyleLambda(),
       effectiveSpreadDollars: avg(this.effSpreadSamples),
       markouts,
@@ -428,18 +442,20 @@ export class MarketAnalytics {
     return Math.max(VPIN_MIN_BUCKET_SIZE, avgSize * VPIN_BUCKET_MULTIPLE);
   }
 
-  private realizedVolBps(): number | null {
+  // Std dev of logit(mid) differences -- the bounded-probability analogue of
+  // realized vol on log returns. See the LOGIT_EPS comment above for why.
+  private realizedVolLogit(): number | null {
     if (this.midHistory.length < 3) return null;
-    const returns: number[] = [];
+    const diffs: number[] = [];
     for (let i = 1; i < this.midHistory.length; i++) {
       const prev = this.midHistory[i - 1].mid;
       const cur = this.midHistory[i].mid;
-      if (prev > 0 && cur > 0) returns.push(Math.log(cur / prev));
+      diffs.push(logit(cur) - logit(prev));
     }
-    if (returns.length < 2) return null;
-    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / (returns.length - 1);
-    return Math.sqrt(variance) * 10_000;
+    if (diffs.length < 2) return null;
+    const mean = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+    const variance = diffs.reduce((a, b) => a + (b - mean) ** 2, 0) / (diffs.length - 1);
+    return Math.sqrt(variance);
   }
 
   private kyleLambda(): number | null {

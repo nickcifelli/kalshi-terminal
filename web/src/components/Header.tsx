@@ -1,5 +1,43 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ConnectionStatus, LockedMarketInfo } from "../types";
+
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+const CLOSE_SOON_MS = 5 * 60_000;
+
+function timeToClose(
+  closeTime: string | null,
+  now: number,
+): { text: string; urgent: boolean } | null {
+  if (!closeTime) return null;
+  const closeMs = Date.parse(closeTime);
+  if (Number.isNaN(closeMs)) return null;
+
+  const remainingMs = closeMs - now;
+  if (remainingMs <= 0) return { text: "CLOSED", urgent: true };
+
+  const totalSec = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+
+  const text =
+    days > 0
+      ? `${days}d ${hours}h ${minutes}m`
+      : hours > 0
+        ? `${hours}h ${minutes}m ${seconds}s`
+        : `${minutes}m ${seconds}s`;
+
+  return { text, urgent: remainingMs < CLOSE_SOON_MS };
+}
 
 function statusColor(relay: string, upstream: ConnectionStatus | null): string {
   if (relay !== "open") return "var(--red)";
@@ -22,6 +60,8 @@ export function Header(props: {
   onChangeMarket: () => void;
 }) {
   const [input, setInput] = useState("");
+  const now = useNow(1000);
+  const closeInfo = timeToClose(props.market?.closeTime ?? null, now);
 
   return (
     <div
@@ -103,6 +143,17 @@ export function Header(props: {
             </span>
             {props.market.title && (
               <span style={{ color: "var(--text-dim)" }}> — {props.market.title}</span>
+            )}
+            {closeInfo && (
+              <span
+                style={{
+                  color: closeInfo.urgent ? "var(--red)" : "var(--text-dim)",
+                  fontSize: 11,
+                  marginLeft: 10,
+                }}
+              >
+                CLOSES IN {closeInfo.text}
+              </span>
             )}
           </span>
         ) : (

@@ -13,6 +13,20 @@ import type {
 // "trade" is deliberately not here: it's subscribed once, globally, for the
 // life of the connection (see globalTradeSid) rather than per locked market.
 const LOCKED_CHANNELS = ["ticker", "orderbook_delta"] as const;
+
+// Order sizes are quoted to the nearest 0.01 contract. We accumulate deltas
+// into resting sizes as integers scaled by this factor rather than as raw
+// floats -- repeated float addition/subtraction of fractional deltas (e.g.
+// -500.00, -791.35, -3000.00, ...) reliably drifts off exact zero (landing
+// on residues like 2.27e-13), which lets a fully-depleted price level pass
+// the "is this level gone" check and linger as a phantom level forever.
+// Since that phantom sits at whatever price it was last touched at, it can
+// masquerade as the new best bid/ask and produce an impossible crossed book.
+const SIZE_SCALE = 100;
+
+function toScaledSize(raw: unknown): number {
+  return Math.round(Number(raw) * SIZE_SCALE);
+}
 const HEARTBEAT_TIMEOUT_MS = 15_000; // server pings every 10s; bail if we miss it
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
@@ -268,13 +282,13 @@ export class KalshiClient extends EventEmitter {
     this.orderbook.yes = new Map(
       (m.yes_dollars_fp ?? []).map(([price, size]: [number, number]) => [
         Number(price),
-        Number(size),
+        toScaledSize(size),
       ]),
     );
     this.orderbook.no = new Map(
       (m.no_dollars_fp ?? []).map(([price, size]: [number, number]) => [
         Number(price),
-        Number(size),
+        toScaledSize(size),
       ]),
     );
   }
@@ -282,7 +296,7 @@ export class KalshiClient extends EventEmitter {
   private applyDelta(m: any): void {
     const book = m.side === "no" ? this.orderbook.no : this.orderbook.yes;
     const price = Number(m.price_dollars);
-    const delta = Number(m.delta_fp);
+    const delta = toScaledSize(m.delta_fp);
     const nextSize = (book.get(price) ?? 0) + delta;
     if (nextSize <= 0) {
       book.delete(price);
@@ -294,7 +308,7 @@ export class KalshiClient extends EventEmitter {
   private currentOrderbook(marketTicker: string): OrderbookState {
     const toLevels = (map: Map<number, number>): OrderbookLevel[] =>
       [...map.entries()]
-        .map(([priceDollars, size]) => ({ priceDollars, size }))
+        .map(([priceDollars, size]) => ({ priceDollars, size: size / SIZE_SCALE }))
         .sort((a, b) => b.priceDollars - a.priceDollars);
     return {
       marketTicker,

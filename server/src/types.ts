@@ -80,8 +80,8 @@ export interface AnalyticsState {
   quoteToTradeRatio: number | null;
   cancelToTradeRatio: number | null;
 
-  realizedVolBps: number | null;
-  amihud: number | null;
+  realizedVolLogit: number | null;
+  amihudLogit: number | null;
   kyleLambda: number | null;
 
   effectiveSpreadDollars: number | null;
