@@ -9,7 +9,11 @@ const SLOPE_LEVELS = 5;
 
 // Multi-horizon markout / realized-spread tracking.
 const MARKOUT_HORIZONS_SEC = [5, 30, 60];
-const MAX_MARKOUT_WAIT_MS = 75_000;
+// Exported so callers that stop feeding a market (e.g. the collector
+// evicting a ticker that fell out of the tracked top-N) know how long to
+// keep it alive/subscribed before any still-pending labels are guaranteed
+// to have either resolved or been given up on.
+export const MAX_MARKOUT_WAIT_MS = 75_000;
 
 // Kyle's lambda: time-bucketed signed-flow vs mid-change regression.
 const KYLE_INTERVAL_MS = 10_000;

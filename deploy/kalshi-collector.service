@@ -1,0 +1,33 @@
+# systemd unit for running the multi-market data collector unattended.
+#
+# Install:
+#   sudo cp deploy/kalshi-collector.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kalshi-collector
+#
+# Logs: journalctl -u kalshi-collector -f
+#
+# Edit User/WorkingDirectory/ExecStart below to match your deployment path
+# and the user the repo is checked out as.
+
+[Unit]
+Description=Kalshi terminal data collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kalshi
+WorkingDirectory=/opt/kalshi-terminal/collector
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+# Belt-and-suspenders alongside the in-process uncaughtException/
+# unhandledRejection handlers (collector/src/index.ts): those make the
+# process exit(1) loudly instead of hanging; this makes systemd bring it
+# back up immediately after that exit, so a fatal error costs seconds of
+# lost data, not the rest of an unattended multi-week run.
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target

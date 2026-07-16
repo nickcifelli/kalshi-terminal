@@ -75,6 +75,49 @@ market's URL) into the lock bar and hit **LOCK**.
   message, to keep bandwidth and render load reasonable on busy markets.
   The trade tape is pushed immediately since it's an append-only feed.
 
+## Data collector
+
+`collector/` is a separate long-running process for logging training data
+for the v2 fair value model (see `future.md`). Unlike `server/`, which locks
+onto one market for the live UI, the collector tracks the top N markets by
+volume at once, writes every raw event to `collector/data/raw/`, and writes
+1Hz feature snapshots plus their resolved forward-outcome labels to
+`collector/data/labeled/` -- the latter is the actual training set.
+
+### Setup
+
+```
+cd collector
+cp .env.example .env
+```
+
+- Edit `.env`: set `KALSHI_API_KEY_ID` and `KALSHI_PRIVATE_KEY_PATH` (can
+  point at the same key file `server/` uses).
+- Defaults are conservative (`COLLECTOR_MARKET_COUNT=20`,
+  `COLLECTOR_MAX_RAW_LOG_GB=20`) -- see the comments in `.env.example`
+  before widening them.
+
+```
+npm install
+npm run build:shared
+npm run dev
+```
+
+### Running unattended
+
+This is meant to run for days/weeks on a small VM, not a laptop left open.
+It fails loudly (exits 1) on any uncaught error rather than silently
+hanging, so it should run under a supervisor that restarts it -- a systemd
+unit template is at `deploy/kalshi-collector.service`:
+
+```
+npm run build   # from the repo root -- builds shared, server, and collector
+sudo cp deploy/kalshi-collector.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now kalshi-collector
+journalctl -u kalshi-collector -f
+```
+
 ## Security
 
 - The local relay (`ws://localhost:8787`) has no authentication of its own

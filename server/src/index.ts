@@ -13,6 +13,19 @@ const kalshi = new KalshiClient();
 const analytics = new MarketAnalytics();
 const tradeCounter = new TradeCounter();
 
+// An uncaught error here would otherwise leave the relay process running
+// but silently no longer forwarding data to the frontend (or worse, half-
+// crashed). Fail loud and exit so it's obvious the relay needs a restart,
+// rather than a quiet stall a user has to notice on their own.
+process.on("uncaughtException", (err) => {
+  console.error("[fatal] uncaughtException", err);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal] unhandledRejection", reason);
+  process.exit(1);
+});
+
 function lockMarket(ticker: string): void {
   const normalized = ticker.trim().toUpperCase();
   if (!normalized) return;
